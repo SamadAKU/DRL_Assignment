@@ -1,0 +1,6 @@
+name: snake_survivor
+weights:
+  step_alive: 0.10
+  apple: 2.0
+  death: -30.0
+  truncation: -5.0

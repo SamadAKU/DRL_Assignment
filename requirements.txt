@@ -1,0 +1,10 @@
+gymnasium==0.29.1
+stable-baselines3==2.3.2
+torch>=2.2,<2.4
+numpy>=1.24,<2
+matplotlib>=3.8
+pandas>=2.2
+pygame>=2.5
+PyYAML>=6.0
+gymnasium[atari]>=0.29
+ale-py>=0.8

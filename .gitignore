@@ -1,0 +1,53 @@
+# Ignore Python 
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Training (CHECKPOINTS + MODELS + LOGS)
+models/
+checkpoints/
+logs/
+
+# Stable-Baselines3 model files + vecmonitor CSVs
+*.zip
+*.pth
+*.onnx
+*.npz
+monitor.csv
+*.csv
+
+# Gym recordings / videos
+*.mp4
+*.gif
+
+# Live plot images
+*.png
+
+# ALE ROM cache 
+*.bin
+*.rom
+models/
+logs/
+checkpoints/
+*.zip
+*.csv
+*.png
+models/
+logs/
+checkpoints/
+*.zip
+*.csv
+*.png
+models/
+logs/
+checkpoints/
+*.zip
+*.csv
+*.png
+models/
+logs/
+checkpoints/
+*.zip
+*.csv
+*.png

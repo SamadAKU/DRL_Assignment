@@ -1,0 +1,8 @@
+name: snake_explorer
+weights:
+  step_alive: 0.05
+  apple: 1.5
+  death: -35.0
+  new_tile: 0.03
+  oscillation: -0.2
+  truncation: -5.0

@@ -1,0 +1,7 @@
+name: pacman_explorer
+weights:
+  step_alive: 0.05
+  pellet: 0.25
+  new_tile: 0.03
+  death: -30.0
+  truncation: -5.0

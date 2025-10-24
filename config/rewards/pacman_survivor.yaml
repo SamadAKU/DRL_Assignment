@@ -1,0 +1,6 @@
+name: pacman_survivor
+weights:
+  step_alive: 0.10
+  pellet: 0.5
+  death: -25.0
+  truncation: -5.0
