@@ -22,7 +22,7 @@ def plot_compare(runs, metric, out_png):
     if not runs: return
     plt.figure()
     for f, df in runs:
-        label = f"{df['app'].iloc[0]}/{df['algo'].iloc[0]}/{df['persona'].iloc[0]} ({df['run_id'].iloc[0]})"
+        label = f"{df['app'].iloc[0]}/{df['persona'].iloc[0]}/{df['algo'].iloc[0]} ({df['run_id'].iloc[0]})"
         if metric in df.columns:
             plt.plot(df.index, df[metric], label=label)
     plt.title(metric)
@@ -57,13 +57,16 @@ def build_summary(runs, out_csv):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--inputs", nargs="+", required=True,
-                    help="CSV files or globs (e.g. logs/*/train/episodes.csv)")
-    ap.add_argument("--outdir", default="compare_out", help="output dir for plots and summary")
+    ap.add_argument("--inputs", nargs="+", default=["logs/*/*/train/episodes.csv"],
+                    help="CSV files or globs (default: all persona runs)")
+    ap.add_argument("--outdir", default="compare_out", help="output dir")
     args = ap.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
     runs = load_runs(args.inputs)
+    if not runs:
+        print("No runs found. Try: --inputs logs/*/*/train/episodes.csv")
+        return
 
     plot_compare(runs, "ep_return", os.path.join(args.outdir, "compare_ep_return.png"))
     plot_compare(runs, "ep_len",    os.path.join(args.outdir, "compare_ep_len.png"))

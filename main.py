@@ -1,4 +1,4 @@
-# main.py — menu launcher (no live training plots)
+# main.py — menu launcher (per-persona dirs, quiet console)
 import os, glob, subprocess, sys
 
 ALGOS = ["ppo", "a2c"]
@@ -35,12 +35,12 @@ def run(cmd):
     subprocess.call(cmd)
 
 def default_paths(app, persona):
-    log_dir   = f"logs/{app}/train"
-    ckpt_dir  = f"models/{app}/checkpoints"
-    model_dir = f"models/{app}"
+    log_dir   = f"logs/{app}/{persona}/train"
+    ckpt_dir  = f"models/{app}/{persona}/checkpoints"
+    model_dir = f"models/{app}/{persona}"
     app_cfg   = f"config/app/{app}.yaml"
     reward_cfg= f"config/rewards/{persona}.yaml"
-    train_csv = f"logs/{app}/train/episodes.csv"
+    train_csv = f"{log_dir}/episodes.csv"
     return log_dir, ckpt_dir, model_dir, app_cfg, reward_cfg, train_csv
 
 def pick_model(model_dir, app, algo):
@@ -55,7 +55,6 @@ def do_train():
     app = ask("Choose app", APPS)
     algo = ask("Choose algo", ALGOS)
 
-    # Only show personas for the chosen app (expects files like pacman_*.yaml / snake_*.yaml)
     reward_yamls = sorted(os.path.splitext(os.path.basename(p))[0]
                           for p in glob.glob("config/rewards/*.yaml")
                           if os.path.isfile(p))
@@ -80,10 +79,10 @@ def do_train():
         "--model_dir", model_dir,
         "--app_cfg", app_cfg,
         "--reward_cfg", reward_cfg,
-        "--train_metrics_csv", train_csv,  # CSV only; no plots
+        "--train_metrics_csv", train_csv,
     ]
     run(cmd)
-    print("\nTraining launched. Per-episode CSV will update at:", train_csv)
+    print("\nTraining running. CSV & checkpoints are under:", log_dir, "and", ckpt_dir)
 
 def do_watch():
     app = ask("Choose app", APPS)
@@ -126,11 +125,13 @@ def do_eval():
 
     episodes = ask_int("Episodes", 50)
     log_dir, _, model_dir, app_cfg, reward_cfg, _ = default_paths(app, persona)
-    out_csv = ask_str("Out CSV", f"logs/{app}/eval/run1.csv")
-    summary_csv = ask_str("Summary CSV", f"logs/{app}/eval/run1_summary.csv")
+    out_csv = ask_str("Out CSV", f"logs/{app}/{persona}/eval/run1.csv")
+    summary_csv = ask_str("Summary CSV", f"logs/{app}/{persona}/eval/run1_summary.csv")
     model_path_default = pick_model(model_dir, app, algo)
     model_path = ask_str("Model path (.zip)", model_path_default)
     make_plots = ask("Make eval plots?", ["Yes", "No"]) == "Yes"
+
+    os.makedirs(os.path.dirname(out_csv), exist_ok=True)
 
     cmd = [
         sys.executable, "-m", "src.eval",

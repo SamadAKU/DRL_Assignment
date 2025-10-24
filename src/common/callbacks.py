@@ -1,9 +1,12 @@
-# src/common/callbacks.py — autosave + per-episode CSV logger with metadata
 from typing import Optional, List, Dict
 import os, csv
 from stable_baselines3.common.callbacks import BaseCallback
 
 class AutoSaveCallback(BaseCallback):
+    """
+    Periodically saves a single rolling model file (…_latest.zip).
+    Set verbose=0 to silence console output.
+    """
     def __init__(self, base_path: str, save_freq: int = 50000, verbose: int = 0):
         super().__init__(verbose)
         self.base_path = base_path
@@ -17,10 +20,12 @@ class AutoSaveCallback(BaseCallback):
             self.model.save(path)
         return True
 
+
 class EpisodeMetricsCSV(BaseCallback):
     """
-    Append per-episode metrics to a CSV during training.
-    Writes static metadata columns (app, algo, persona, run_id) on every row.
+    Writes per-episode metrics to a CSV:
+      app, algo, persona, run_id, ep_idx, total_timesteps, ep_len, ep_return, total_*
+    Set verbose=0 to silence console output.
     """
     def __init__(self, csv_path: str, meta: Optional[Dict[str, str]] = None, verbose: int = 0):
         super().__init__(verbose)
@@ -28,7 +33,7 @@ class EpisodeMetricsCSV(BaseCallback):
         self.meta = meta or {}
         self._fieldnames: Optional[List[str]] = None
         self._ep_idx = 0
-        self._acc = None  # list of dict per env
+        self._acc = None
         self._csv_f = None
         self._writer = None
 
@@ -42,7 +47,9 @@ class EpisodeMetricsCSV(BaseCallback):
     def _ensure_writer(self, totals_keys: List[str]):
         if not self._writer:
             static_cols = ["app", "algo", "persona", "run_id"]
-            self._fieldnames = static_cols + ["ep_idx", "total_timesteps", "ep_len", "ep_return"] + [f"total_{k}" for k in sorted(totals_keys)]
+            self._fieldnames = static_cols + [
+                "ep_idx", "total_timesteps", "ep_len", "ep_return"
+            ] + [f"total_{k}" for k in sorted(totals_keys)]
             fresh = not os.path.exists(self.csv_path)
             self._csv_f = open(self.csv_path, "a", newline="", encoding="utf-8")
             self._writer = csv.DictWriter(self._csv_f, fieldnames=self._fieldnames)
