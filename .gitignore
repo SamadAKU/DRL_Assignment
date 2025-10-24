@@ -1,53 +1,26 @@
-# Ignore Python 
+# Training artifacts only
+models/
+logs/
+checkpoints/
+
+# SB3 + CSVs in logs
+logs/**/*.csv
+logs/**/*.png
+logs/**/*.mp4
+logs/**/*.gif
+logs/**/monitor.csv
+
+# Model blobs (anywhere under models/)
+models/**/*.zip
+models/**/*.npz
+models/**/*.pth
+models/**/*.onnx
+
+# Usual Python/editor junk
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Training (CHECKPOINTS + MODELS + LOGS)
-models/
-checkpoints/
-logs/
-
-# Stable-Baselines3 model files + vecmonitor CSVs
-*.zip
-*.pth
-*.onnx
-*.npz
-monitor.csv
-*.csv
-
-# Gym recordings / videos
-*.mp4
-*.gif
-
-# Live plot images
-*.png
-
-# ALE ROM cache 
-*.bin
-*.rom
-models/
-logs/
-checkpoints/
-*.zip
-*.csv
-*.png
-models/
-logs/
-checkpoints/
-*.zip
-*.csv
-*.png
-models/
-logs/
-checkpoints/
-*.zip
-*.csv
-*.png
-models/
-logs/
-checkpoints/
-*.zip
-*.csv
-*.png
+.vscode/
+.idea/
+.DS_Store
