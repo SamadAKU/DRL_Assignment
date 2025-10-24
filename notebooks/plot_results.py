@@ -30,19 +30,46 @@ def line_plot(df, col, out):
     print("saved", out)
 
 def bar_totals(summary_csv, out, episodes_csv=None):
+    import pandas as pd, os
     cols, vals = [], []
+
+    # 1) Prefer summary CSV with total_* columns
     if summary_csv and os.path.exists(summary_csv):
-        sdf = pd.read_csv(summary_csv)
-        cols = [c for c in sdf.columns if c.startswith("total_")]
-        if cols:
-            vals = [float(sdf.loc[0, c]) for c in cols]
-    if not cols and episodes_csv and os.path.exists(episodes_csv):
-        df = pd.read_csv(episodes_csv)
-        if len(df) > 0:
-            last = df.iloc[-1]
-            cols = [c for c in df.columns if c.startswith("total_")]
-            vals = [float(last[c]) for c in cols] if cols else []
-    if not cols: return
+        try:
+            sdf = pd.read_csv(summary_csv)
+            tcols = [c for c in sdf.columns if c.startswith("total_")]
+            if len(sdf) > 0 and tcols:
+                cols = tcols
+                vals = [float(sdf.loc[0, c]) for c in tcols]
+        except Exception:
+            pass
+
+    # 2) Fallback: use episodes.csv
+    if (not cols) and episodes_csv and os.path.exists(episodes_csv):
+        try:
+            df = pd.read_csv(episodes_csv)
+            # Try total_* on the last row first
+            tcols = [c for c in df.columns if c.startswith("total_")]
+            if len(df) > 0 and tcols:
+                last = df.iloc[-1]
+                cols = tcols
+                vals = [float(last[c]) for c in tcols]
+            else:
+                # FINAL fallback: sum known per-episode counters if present
+                candidates = ["apples_eaten", "pellets", "deaths", "unique_tiles",
+                              "dots", "ghosts_eaten", "lives_lost"]
+                present = [c for c in candidates if c in df.columns]
+                if present:
+                    cols = [f"total_{c}" for c in present]
+                    vals = [float(df[c].sum()) for c in present]
+        except Exception:
+            pass
+
+    if not cols:
+        print("No totals available: no total_* columns and no known per-episode counters in CSV.")
+        return
+
+    import matplotlib.pyplot as plt
     plt.figure()
     plt.bar(cols, vals)
     plt.title("Totals")
