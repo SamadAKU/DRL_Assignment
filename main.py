@@ -1,166 +1,224 @@
-# main.py — menu launcher (per-persona dirs, quiet console)
-import os, glob, subprocess, sys
+# main.py — menu with auto-discovery of apps, personas, and models (no typing required)
+import os
+import glob
+import subprocess
+import sys
+from pathlib import Path
 
+APPS = ["pacman", "snake"]
 ALGOS = ["ppo", "a2c"]
-APPS = ["snake", "pacman"]
 
-def ask(prompt, options):
-    print(f"\n{prompt}")
-    for i, opt in enumerate(options, 1):
-        print(f"  [{i}] {opt}")
+# ---------- FS helpers ----------
+def stems(paths):
+    out = []
+    for p in paths:
+        name = os.path.splitext(os.path.basename(p))[0]
+        if name:
+            out.append(name)
+    return out
+
+def existing_personas_for_app(app: str):
+    """Union of personas from config/rewards/*.yaml and models/<app>/* (excluding checkpoints)."""
+    cfg_personas = set(stems(glob.glob("config/rewards/*.yaml")))
+    model_dirs = set()
+    for p in glob.glob(f"models/{app}/*"):
+        base = os.path.basename(p)
+        if os.path.isdir(p) and base.lower() != "checkpoints":
+            model_dirs.add(base)
+    return sorted(cfg_personas | model_dirs)
+
+def available_models(app: str, persona: str):
+    """Return {'best': path or '', 'latest': path or ''} for any algo found."""
+    base = Path(f"models/{app}/{persona}")
+    found = {}
+    if not base.exists():
+        return found
+    for z in base.glob("*.zip"):
+        found.setdefault(z.stem.split("_")[0].lower(), {"best": "", "latest": ""})
+    for algo in list(found.keys()):
+        best = base / f"{algo.upper()}_{app}_{persona}_best.zip"
+        latest = base / f"{algo.upper()}_{app}_{persona}_latest.zip"
+        found[algo]["best"] = str(best) if best.exists() else ""
+        found[algo]["latest"] = str(latest) if latest.exists() else ""
+    return found
+
+def pick(items, title):
+    """Numbered picker. Returns selected item (string)."""
+    if not items:
+        raise RuntimeError(f"No options for {title}")
+    print(f"\n{title}")
+    for i, it in enumerate(items, 1):
+        print(f"  [{i}] {it}")
     while True:
+        s = input("Choose #: ").strip()
+        if not s:
+            continue
         try:
-            n = int(input("Enter number: ").strip())
-            if 1 <= n <= len(options):
-                return options[n-1]
+            n = int(s)
+            if 1 <= n <= len(items):
+                return items[n - 1]
         except ValueError:
             pass
 
-def ask_str(prompt, default=None):
-    s = input(f"{prompt}{' ['+default+']' if default else ''}: ").strip()
-    return s if s else (default if default is not None else "")
+def prompt_int(title, default):
+    s = input(f"{title} [{default}]: ").strip()
+    return int(s) if s else int(default)
 
-def ask_int(prompt, default=None):
-    while True:
-        s = input(f"{prompt}{' ['+str(default)+']' if default is not None else ''}: ").strip()
-        if not s and default is not None:
-            return int(default)
-        try:
-            return int(s)
-        except ValueError:
-            print("Enter an integer.")
+def prompt_str(title, default=""):
+    s = input(f"{title}{' ['+default+']' if default else ''}: ").strip()
+    return s if s else default
 
 def run(cmd):
-    print("\n>>>", " ".join(str(c) for c in cmd))
-    subprocess.call(cmd)
+    cmd = [str(c) for c in cmd]
+    print("\n>>>", " ".join(cmd))
+    subprocess.run(cmd, check=False)
 
-def default_paths(app, persona):
+
+# ---------- Paths ----------
+def paths_for(app: str, persona: str):
     log_dir   = f"logs/{app}/{persona}/train"
     ckpt_dir  = f"models/{app}/{persona}/checkpoints"
     model_dir = f"models/{app}/{persona}"
-    app_cfg   = f"config/app/{app}.yaml"
-    reward_cfg= f"config/rewards/{persona}.yaml"
-    train_csv = f"{log_dir}/episodes.csv"
-    return log_dir, ckpt_dir, model_dir, app_cfg, reward_cfg, train_csv
+    reward_cfg = f"config/rewards/{persona}.yaml"  # optional; may not exist
+    return log_dir, ckpt_dir, model_dir, reward_cfg
 
-def pick_model(model_dir, app, algo):
-    best = sorted(glob.glob(os.path.join(model_dir, f"{algo.upper()}_{app}_best.zip")), reverse=True)
-    if best: return best[0]
-    latest = sorted(glob.glob(os.path.join(model_dir, f"{algo.upper()}_{app}_latest.zip")), reverse=True)
-    if latest: return latest[0]
-    anyzip = sorted(glob.glob(os.path.join(model_dir, "*.zip")), reverse=True)
-    return anyzip[0] if anyzip else ""
+# ---------- Actions ----------
+def action_train():
+    app = pick(APPS, "App")
+    algo = pick(ALGOS, "Algorithm")
+    personas = existing_personas_for_app(app)
+    if personas:
+        persona = pick(personas, "Persona (from configs/models)")
+    else:
+        persona = prompt_str("Persona name (used for save path)")
+    timesteps = prompt_str("Total timesteps", "3000000")
+    n_envs = prompt_int("Vectorized envs", 8)
 
-def do_train():
-    app = ask("Choose app", APPS)
-    algo = ask("Choose algo", ALGOS)
+    log_dir, ckpt_dir, model_dir, reward_cfg = paths_for(app, persona)
 
-    reward_yamls = sorted(os.path.splitext(os.path.basename(p))[0]
-                          for p in glob.glob("config/rewards/*.yaml")
-                          if os.path.isfile(p))
-    prefix = "snake_" if app == "snake" else "pacman_"
-    reward_yamls = [y for y in reward_yamls if y.startswith(prefix)]
-    persona = ask("Choose persona", reward_yamls) if reward_yamls else ask_str("Persona name (YAML stem)")
-
-    n_envs = ask_int("Vectorized envs", 8)
-    timesteps = ask_str("Total timesteps", "3e6")
-
-    log_dir, ckpt_dir, model_dir, app_cfg, reward_cfg, train_csv = default_paths(app, persona)
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+    Path(ckpt_dir).mkdir(parents=True, exist_ok=True)
+    Path(model_dir).mkdir(parents=True, exist_ok=True)
 
     cmd = [
         sys.executable, "-m", "src.train",
-        "--app", app,
-        "--algo", algo,
+        "--app", app, "--algo", algo,
+        "--timesteps", timesteps, "--n_envs", n_envs,
         "--persona", persona,
-        "--n_envs", str(n_envs),
-        "--timesteps", str(timesteps),
-        "--log_dir", log_dir,
-        "--ckpt_dir", ckpt_dir,
-        "--model_dir", model_dir,
-        "--app_cfg", app_cfg,
-        "--reward_cfg", reward_cfg,
-        "--train_metrics_csv", train_csv,
     ]
+    if os.path.exists(reward_cfg):
+        cmd += ["--reward_cfg", reward_cfg]
     run(cmd)
-    print("\nTraining running. CSV & checkpoints are under:", log_dir, "and", ckpt_dir)
 
-def do_watch():
-    app = ask("Choose app", APPS)
-    algo = ask("Choose algo", ALGOS)
+def action_watch():
+    app = pick(APPS, "App")
+    algo = pick(ALGOS, "Algorithm")
+    personas = existing_personas_for_app(app)
+    if not personas:
+        print("No personas found. Train first.")
+        return
+    persona = pick(personas, "Persona")
 
-    reward_yamls = sorted(os.path.splitext(os.path.basename(p))[0]
-                          for p in glob.glob("config/rewards/*.yaml")
-                          if os.path.isfile(p))
-    prefix = "snake_" if app == "snake" else "pacman_"
-    reward_yamls = [y for y in reward_yamls if y.startswith(prefix)]
-    persona = ask("Choose persona (for cfg selection)", reward_yamls) if reward_yamls else ask_str("Persona name")
+    models = available_models(app, persona)
+    # Prefer the selected algo; fall back if no files yet
+    model_path = ""
+    if algo in models:
+        model_path = models[algo]["best"] or models[algo]["latest"]
+    if not model_path:
+        # check any algo present
+        for a, rec in models.items():
+            model_path = rec["best"] or rec["latest"]
+            if model_path:
+                print(f"(Note) Using {a.upper()} model because {algo.upper()} not found.")
+                algo = a
+                break
 
-    _, _, model_dir, app_cfg, reward_cfg, _ = default_paths(app, persona)
-    model_path_default = pick_model(model_dir, app, algo)
-    model_path = ask_str("Model path (.zip)", model_path_default)
-    fps = ask_int("FPS (watch speed)", 30)
-    record = ask_str("Record to mp4 (blank = no)", "")
+    if not model_path:
+        print("No trained model found for that persona. Train first.")
+        return
 
+    episodes = prompt_int("Episodes to watch", 5)
     cmd = [
-        sys.executable, "-m", "src.eval",
-        "--app", app, "--algo", algo, "--persona", persona,
-        "--app_cfg", app_cfg, "--reward_cfg", reward_cfg,
-        "--model_path", model_path,
-        "--watch", "--fps", str(fps),
+        sys.executable, "-m", "src.test",
+        "--app", app, "--algo", algo,
+        "--model_path", model_path, "--episodes", episodes,
     ]
-    if record:
-        cmd += ["--record", record]
     run(cmd)
 
-def do_eval():
-    app = ask("Choose app", APPS)
-    algo = ask("Choose algo", ALGOS)
+def action_plot_single():
+    app = pick(APPS, "App")
+    personas = existing_personas_for_app(app)
+    if not personas:
+        print("No personas found.")
+        return
+    persona = pick(personas, "Persona")
 
-    reward_yamls = sorted(os.path.splitext(os.path.basename(p))[0]
-                          for p in glob.glob("config/rewards/*.yaml")
-                          if os.path.isfile(p))
-    prefix = "snake_" if app == "snake" else "pacman_"
-    reward_yamls = [y for y in reward_yamls if y.startswith(prefix)]
-    persona = ask("Choose persona", reward_yamls) if reward_yamls else ask_str("Persona name")
+    log_dir, *_ = paths_for(app, persona)
+    # Try common plot script names — adjust to your file names
+    if os.path.exists("notebooks/plot_results.py"):
+        run([sys.executable, "notebooks/plot_results.py", "--log_dir", log_dir])
+    elif os.path.exists("notebooks/plot_results.ipynb"):
+        print("Use your notebook to plot; CSVs are in:", log_dir)
+    else:
+        print("Missing notebooks/plot_results.py. Point your plot script at:", log_dir)
 
-    episodes = ask_int("Episodes", 50)
-    log_dir, _, model_dir, app_cfg, reward_cfg, _ = default_paths(app, persona)
-    out_csv = ask_str("Out CSV", f"logs/{app}/{persona}/eval/run1.csv")
-    summary_csv = ask_str("Summary CSV", f"logs/{app}/{persona}/eval/run1_summary.csv")
-    model_path_default = pick_model(model_dir, app, algo)
-    model_path = ask_str("Model path (.zip)", model_path_default)
-    make_plots = ask("Make eval plots?", ["Yes", "No"]) == "Yes"
+def action_plot_compare():
+    app = pick(APPS, "App")
+    personas = existing_personas_for_app(app)
+    if len(personas) < 2:
+        print("Need at least two personas to compare.")
+        return
+    print("\nPick personas to compare (space-separated indices):")
+    for i, p in enumerate(personas, 1):
+        print(f"  [{i}] {p}")
+    idx = input("Indices (e.g., 1 3 4): ").strip().split()
+    sel = []
+    for s in idx:
+        try:
+            n = int(s)
+            if 1 <= n <= len(personas):
+                sel.append(personas[n-1])
+        except ValueError:
+            pass
+    if len(sel) < 2:
+        print("Select at least two.")
+        return
+    metric = prompt_str("Metric (x-axis key)", "ep_return")
 
-    os.makedirs(os.path.dirname(out_csv), exist_ok=True)
-
-    cmd = [
-        sys.executable, "-m", "src.eval",
-        "--app", app, "--algo", algo, "--persona", persona,
-        "--app_cfg", app_cfg, "--reward_cfg", reward_cfg,
-        "--model_path", model_path,
-        "--episodes", str(episodes),
-        "--out_csv", out_csv,
-        "--summary_csv", summary_csv,
+    script_candidates = [
+        "notebooks/plot_comare.py",      # your renamed one
+        "notebooks/compare_results.py",  # common alt
     ]
-    if make_plots:
-        cmd.append("--make_plots")
+    script = next((s for s in script_candidates if os.path.exists(s)), "")
+    if not script:
+        print("Missing compare plot script. Selected personas:", sel)
+        return
+
+    out = f"logs/{app}/compare_{metric}.png"
+    cmd = [sys.executable, script, "--app", app, "--metric", metric, "--out", out, "--personas", *sel]
     run(cmd)
+    print("Wrote:", out)
 
 def main():
+    MENU = [
+        "Train",
+        "Watch (play current model)",
+        "Plot single persona",
+        "Compare personas",
+        "Quit",
+    ]
     while True:
-        choice = ask("What do you want to do?", [
-            "Train",
-            "Watch a model",
-            "Evaluate a model (and make plots)",
-            "Quit",
-        ])
+        choice = pick(MENU, "Main Menu")
         if choice == "Train":
-            do_train()
+            action_train()
         elif choice.startswith("Watch"):
-            do_watch()
-        elif choice.startswith("Evaluate"):
-            do_eval()
+            action_watch()
+        elif choice.startswith("Plot single"):
+            action_plot_single()
+        elif choice.startswith("Compare"):
+            action_plot_compare()
         else:
+            print("bye")
             break
 
 if __name__ == "__main__":

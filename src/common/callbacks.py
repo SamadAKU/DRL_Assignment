@@ -1,108 +1,74 @@
-from typing import Optional, List, Dict
-import os, csv
+import os
+from collections import deque
 from stable_baselines3.common.callbacks import BaseCallback
 
-class AutoSaveCallback(BaseCallback):
-    """
-    Periodically saves a single rolling model file (…_latest.zip).
-    Set verbose=0 to silence console output.
-    """
-    def __init__(self, base_path: str, save_freq: int = 50000, verbose: int = 0):
+class ProgressPrinter(BaseCallback):
+    """Print a short progress line every print_freq steps."""
+    def __init__(self, print_freq: int = 50000, window: int = 100):
+        super().__init__()
+        self.print_freq = int(print_freq)
+        self.window = int(window)
+        self._episode_returns = deque(maxlen=self.window)
+        self._episode_lengths = deque(maxlen=self.window)
+        self._last_print_step = 0
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps - self._last_print_step >= self.print_freq:
+            log = self.model.logger.name_to_value
+            er = log.get("rollout/ep_rew_mean")
+            el = log.get("rollout/ep_len_mean")
+            msg = f"[{self.num_timesteps}]"
+            if er is not None: msg += f" ep_rew_mean={er:.2f}"
+            if el is not None: msg += f" ep_len_mean={int(el)}"
+            print(msg)
+            self._last_print_step = self.num_timesteps
+        return True
+
+class LatestModelSaver(BaseCallback):
+    """Overwrite *_latest.zip every save_freq steps."""
+    def __init__(self, save_path: str, save_freq: int = 100000, verbose: int = 0):
         super().__init__(verbose)
-        self.base_path = base_path
+        self.save_path = save_path
         self.save_freq = int(save_freq)
+        os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
 
     def _on_step(self) -> bool:
         if self.num_timesteps % self.save_freq == 0:
-            path = f"{self.base_path}.zip"
-            if self.verbose:
-                print(f"[AutoSave] saving {path}")
+            if self.verbose: print(f"[save] latest -> {self.save_path}")
+            self.model.save(self.save_path)
+        return True
+
+class BestModelSaver(BaseCallback):
+    """Save *_best.zip when ep_rew_mean improves."""
+    def __init__(self, save_path: str, min_improve: float = 1e-6, verbose: int = 0):
+        super().__init__(verbose)
+        self.save_path = save_path
+        self.min_improve = float(min_improve)
+        self.best = None
+        os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
+
+    def _on_step(self) -> bool:
+        cur = self.model.logger.name_to_value.get("rollout/ep_rew_mean")
+        if cur is None: return True
+        if self.best is None or cur > self.best + self.min_improve:
+            self.best = cur
+            if self.verbose: print(f"[save] best ({self.best:.2f}) -> {self.save_path}")
+            self.model.save(self.save_path)
+        return True
+
+class PeriodicCheckpointSaver(BaseCallback):
+    """Numbered checkpoints every save_freq into models/.../checkpoints/."""
+    def __init__(self, folder: str, save_freq: int = 500000, prefix: str = "ckpt", verbose: int = 0):
+        super().__init__(verbose)
+        self.folder = folder
+        self.save_freq = int(save_freq)
+        self.prefix = prefix
+        os.makedirs(self.folder, exist_ok=True)
+
+    def _on_step(self) -> bool:
+        if self.num_timesteps % self.save_freq == 0:
+            path = os.path.join(self.folder, f"{self.prefix}_{self.num_timesteps}.zip")
+            if self.verbose: print(f"[save] checkpoint -> {path}")
             self.model.save(path)
         return True
 
-
-class EpisodeMetricsCSV(BaseCallback):
-    """
-    Writes per-episode metrics to a CSV:
-      app, algo, persona, run_id, ep_idx, total_timesteps, ep_len, ep_return, total_*
-    Set verbose=0 to silence console output.
-    """
-    def __init__(self, csv_path: str, meta: Optional[Dict[str, str]] = None, verbose: int = 0):
-        super().__init__(verbose)
-        self.csv_path = csv_path
-        self.meta = meta or {}
-        self._fieldnames: Optional[List[str]] = None
-        self._ep_idx = 0
-        self._acc = None
-        self._csv_f = None
-        self._writer = None
-
-    def _on_training_start(self) -> None:
-        n_envs = getattr(self.training_env, "num_envs", 1)
-        self._acc = [ { "ret": 0.0, "len": 0, "totals": {} } for _ in range(n_envs) ]
-        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
-        if self.verbose:
-            print(f"[EpisodeMetricsCSV] writing to {self.csv_path}")
-
-    def _ensure_writer(self, totals_keys: List[str]):
-        if not self._writer:
-            static_cols = ["app", "algo", "persona", "run_id"]
-            self._fieldnames = static_cols + [
-                "ep_idx", "total_timesteps", "ep_len", "ep_return"
-            ] + [f"total_{k}" for k in sorted(totals_keys)]
-            fresh = not os.path.exists(self.csv_path)
-            self._csv_f = open(self.csv_path, "a", newline="", encoding="utf-8")
-            self._writer = csv.DictWriter(self._csv_f, fieldnames=self._fieldnames)
-            if fresh:
-                self._writer.writeheader()
-
-    def _close_writer(self):
-        try:
-            if self._csv_f:
-                self._csv_f.close()
-        except Exception:
-            pass
-        self._csv_f = None
-        self._writer = None
-
-    def _on_step(self) -> bool:
-        infos = self.locals.get("infos", [])
-        if not infos:
-            return True
-
-        n_envs = len(infos)
-        for i in range(n_envs):
-            info = infos[i] or {}
-            metrics = info.get("metrics", None)
-            if metrics:
-                acc = self._acc[i]["totals"]
-                for k, v in metrics.items():
-                    acc[k] = acc.get(k, 0.0) + float(v)
-
-            ep = info.get("episode", None)
-            if ep is not None:
-                self._acc[i]["ret"] = float(ep.get("r", 0.0))
-                self._acc[i]["len"] = int(ep.get("l", 0))
-
-                totals_keys = list(self._acc[i]["totals"].keys())
-                self._ensure_writer(totals_keys)
-
-                row = {
-                    **{k: self.meta.get(k, "") for k in ["app", "algo", "persona", "run_id"]},
-                    "ep_idx": self._ep_idx,
-                    "total_timesteps": int(self.num_timesteps),
-                    "ep_len": self._acc[i]["len"],
-                    "ep_return": self._acc[i]["ret"],
-                }
-                for k in totals_keys:
-                    row[f"total_{k}"] = float(self._acc[i]["totals"][k])
-                self._writer.writerow(row)
-
-                if self.verbose:
-                    print(f"[EpisodeMetricsCSV] wrote episode {self._ep_idx} @ {self.num_timesteps} ts")
-                self._ep_idx += 1
-                self._acc[i] = { "ret": 0.0, "len": 0, "totals": {} }
-        return True
-
-    def _on_training_end(self) -> None:
-        self._close_writer()

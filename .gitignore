@@ -1,11 +1,9 @@
 # Training artifacts only
 models/
-logs/
+logs/train/
 checkpoints/
 
 # SB3 + CSVs in logs
-logs/**/*.csv
-logs/**/*.png
 logs/**/*.mp4
 logs/**/*.gif
 logs/**/monitor.csv

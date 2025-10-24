@@ -1,165 +1,98 @@
-# envs/pacman_env.py
 import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
-from typing import Optional, Dict, Any, Tuple
-
-# Some setups import this from snake_env; keep a safe fallback so this file stands alone.
-try:
-    from envs.snake_env import GymV21toGymnasium  # noqa: F401
-except Exception:
-    GymV21toGymnasium = None  # type: ignore
-
 
 class PacmanRewardWrapper(gym.Wrapper):
     """
-    Persona-aware shaping + per-step metrics via info['metrics'].
+    Persona-aware shaping + consistent metrics:
+      pellets, deaths, unique_tiles, truncations, score_delta, steps
 
-    Reads weights from reward_cfg['weights'] if provided. Recognized keys (aliases allowed):
-      - step_alive (alias: living -> alive)
-      - pellet
-      - power_pellet (alias: power)
-      - fruit (alias: cherries)
-      - ghost_chain  (for bonus when chain-eating ghosts, not detected here but kept for parity)
-      - new_tile (aliases: newtiles, explore -> newtile)
-      - death
-      - truncation
-      - level_clear
+    YAML (reward_cfg["weights"]) can include:
+      alive, pellet, death, truncation, explore (or new_tile),
+      ghost, fruit
 
-    We do not try to decode all MsPacman events; instead:
-      - use env's raw reward as a score delta (logged under 'score_delta')
-      - heuristically count pellets on positive base reward
-      - detect 'death' via lives drop
-      - encourage exploration via a cheap 'unique tile' hash
-      - expose per-step counters in info['metrics'] so a CSV callback can sum to total_*
+    Exploration uses hashed content of a small obs slice
+    (works without reading exact coordinates from ALE RAM).
     """
-
-    def __init__(self, env: gym.Env, reward_cfg: Optional[Dict[str, Any]] = None):
+    def __init__(self, env, reward_cfg=None):
         super().__init__(env)
-        self.reward_cfg = reward_cfg or {}
-        raw = (self.reward_cfg.get("weights") or {})
+        w = (reward_cfg or {}).get("weights", {})
 
-        # normalize keys, add useful aliases
-        aliases = {
-            "living": "alive",
-            "power": "power_pellet",
-            "new_tile": "newtile",
-            "newtiles": "newtile",
-            "explore": "newtile",
-            "cherries": "fruit",
-        }
-        weights: Dict[str, float] = {}
-        for k, v in raw.items():
-            k_norm = aliases.get(k, k)
-            weights[k_norm] = float(v)
+        # core persona knobs
+        self.w_alive   = float(w.get("alive",     0.0))
+        self.w_pellet  = float(w.get("pellet",    0.0))
+        self.w_death   = float(w.get("death",   -10.0))
+        self.w_trunc   = float(w.get("truncation", -3.0))
+        self.w_explore = float(w.get("explore",   0.0))
+        self.w_ghost   = float(w.get("ghost",     0.0))
+        self.w_fruit   = float(w.get("fruit",     0.0))
 
-        # install all weights as attributes: weights["pellet"] -> self.w_pellet
-        for k, v in weights.items():
-            setattr(self, f"w_{k}", v)
-
-        # ensure attributes exist with safe defaults
-        for name in [
-            "alive", "pellet", "power_pellet", "fruit",
-            "ghost_chain", "newtile", "death", "level_clear", "truncation"
-        ]:
-            if not hasattr(self, f"w_{name}"):
-                setattr(self, f"w_{name}", 0.0)
-
-        # episode state
         self._visited = set()
-        self._last_lives: Optional[int] = None
+        self._score_delta = 0.0
         self._steps = 0
+        self._last_lives = None
 
-    # -------- gym API --------
     def reset(self, **kwargs):
         res = self.env.reset(**kwargs)
-        if isinstance(res, tuple) and len(res) == 2:
-            obs, info = res
-        else:
-            obs, info = res, {}
-        if not isinstance(info, dict):
-            info = {}
+        obs, info = res if isinstance(res, tuple) else (res, {})
         info.setdefault("metrics", {})
-
         self._visited.clear()
+        self._score_delta = 0.0
         self._steps = 0
         self._last_lives = info.get("lives", None)
-
-        # Optional: initialize counters on reset so eval can read zeros immediately
-        m = info["metrics"]
-        m.setdefault("steps", 0)
-        m.setdefault("pellets", 0)
-        m.setdefault("unique_tiles", 0)
-        m.setdefault("ghosts_eaten", 0)
-        m.setdefault("deaths", 0)
-        m.setdefault("truncations", 0)
-        m.setdefault("score_delta", 0.0)
         return obs, info
 
     def step(self, action):
         obs, base_r, terminated, truncated, info = self.env.step(action)
         self._steps += 1
-
-        # make sure we have a metrics dict
-        info = dict(info) if isinstance(info, dict) else {}
-        m: Dict[str, Any] = info.setdefault("metrics", {})
-        m["steps"] = m.get("steps", 0) + 1
+        m = info.setdefault("metrics", {})
 
         shaped = 0.0
 
-        # 1) alive shaping every step
-        if getattr(self, "w_alive", 0.0) != 0.0:
-            shaped += float(self.w_alive)
+        # alive bonus
+        shaped += self.w_alive
 
-        # 2) positive reward heuristic -> pellets/fruit (count once per positive delta)
+        # pellet eaten (positive base reward)
         if base_r > 0:
-            if getattr(self, "w_pellet", 0.0) != 0.0:
-                shaped += float(self.w_pellet)
+            shaped += self.w_pellet
             m["pellets"] = m.get("pellets", 0) + 1
 
-        # 3) exploration: cheap content hash for "new tile"
-        w_newtile = getattr(self, "w_newtile", 0.0)
-        if w_newtile != 0.0:
-            # Hash a small observation slice to approximate novelty cheaply.
-            try:
-                # Assume obs is HWC (Gymnasium Atari); slice top-left patch
-                h = int(np.sum(obs[:10, :10]) % (1 << 20))
-                if h not in self._visited:
-                    self._visited.add(h)
-                    shaped += float(w_newtile)
-                    m["unique_tiles"] = m.get("unique_tiles", 0) + 1
-            except Exception:
-                # If obs shape unexpected, just skip novelty
-                pass
-
-        # 4) death detection via lives drop
+        # death detection (drop in lives)
         lives = info.get("lives", self._last_lives)
-        if self._last_lives is not None and lives is not None and lives < self._last_lives:
-            if getattr(self, "w_death", 0.0) != 0.0:
-                shaped += float(self.w_death)
-            m["deaths"] = m.get("deaths", 0) + 1
+        if self._last_lives is not None and lives is not None:
+            if lives < self._last_lives:
+                shaped += self.w_death
+                m["deaths"] = m.get("deaths", 0) + 1
         self._last_lives = lives
 
-        # 5) truncation shaping (time limit etc.)
+        # exploration by hashed frame region
+        if self.w_explore != 0.0:
+            h = int(np.sum(obs[:10, :10]) % (1 << 20))
+            if h not in self._visited:
+                self._visited.add(h)
+                shaped += self.w_explore
+                m["unique_tiles"] = m.get("unique_tiles", 0) + 1
+
+        # truncation penalty (time up)
         if truncated and not terminated:
-            if getattr(self, "w_truncation", 0.0) != 0.0:
-                shaped += float(self.w_truncation)
+            shaped += self.w_trunc
             m["truncations"] = m.get("truncations", 0) + 1
 
-        # 6) always log score delta for analysis
-        m["score_delta"] = float(m.get("score_delta", 0.0) + float(base_r))
+        # raw gameplay score logging
+        self._score_delta += float(base_r)
+        m["score_delta"] = self._score_delta
+        m["steps"] = self._steps
 
         return obs, float(base_r + shaped), terminated, truncated, info
 
 
-def make_pacman_env(reward_cfg: Optional[Dict[str, Any]], eval_mode: bool = False, render_human: bool = False):
-    import ale_py  # noqa: F401
-
+def make_pacman_env(reward_cfg, eval_mode: bool = False, render_human: bool = False):
+    import ale_py
     render_mode = "human" if render_human else "rgb_array"
     env = gym.make(
         "ALE/MsPacman-v5",
         render_mode=render_mode,
-        full_action_space=False,
-        repeat_action_probability=0.0, 
+        repeat_action_probability=0.0,
     )
-    env = PacmanRewardWrapper(env, reward_cfg=reward_cfg)
+    env = PacmanRewardWrapper(env, reward_cfg)
     return env

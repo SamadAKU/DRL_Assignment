@@ -1,6 +1,11 @@
 name: snake_survivor
 weights:
-  step_alive: 0.10
-  apple: 2.0
-  death: -30.0
-  truncation: -5.0
+  step_alive: 0.02
+  apple: 0.5
+  death: -15.0
+  new_tile: 0.0
+  toward_food: 0.01
+  away_from_food: -0.01
+  backtrack_pen: -0.005
+  wall_pen: -0.01
+  idle_pen: 0.0
