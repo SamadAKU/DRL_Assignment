@@ -1,12 +1,20 @@
 # src/train.py
 import argparse
 from pathlib import Path
+import os
+import time
 
 from stable_baselines3 import PPO, A2C
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
+from stable_baselines3.common.monitor import Monitor  # <-- writes monitor_*.csv
 
 from src.common.factory import make_env
-from src.common.callbacks import ProgressPrinter, LatestModelSaver, BestModelSaver, PeriodicCheckpointSaver
+from src.common.callbacks import (
+    ProgressPrinter,
+    LatestModelSaver,
+    BestModelSaver,
+    PeriodicCheckpointSaver,
+)
 
 def _persona_from_cfg(path: str) -> str:
     if not path:
@@ -15,13 +23,26 @@ def _persona_from_cfg(path: str) -> str:
     name = p.name
     return name[:-5] if name.endswith(".yaml") else name
 
-def build_vec_env(app: str, n_envs: int, reward_cfg: str | None):
-    def thunk():
-        return make_env(app, for_watch=False, reward_cfg_path=reward_cfg)
+def build_vec_env(app: str, n_envs: int, reward_cfg: str | None, log_dir: Path):
+    """Create vec env and write one Monitor CSV per worker (monitor_<pid>_<ns>.csv)."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    def make_thunk():
+        def thunk():
+            env = make_env(app, for_watch=False, reward_cfg_path=reward_cfg)
+            # Unique filename per worker/process (Windows-safe)
+            uid = f"{os.getpid()}_{time.monotonic_ns()}"
+            csv_path = log_dir / f"monitor_{uid}.csv"
+            env = Monitor(env, filename=str(csv_path))
+            return env
+        return thunk
+
     if n_envs > 1:
-        env = SubprocVecEnv([thunk for _ in range(n_envs)])
+        env = SubprocVecEnv([make_thunk() for _ in range(n_envs)])
     else:
-        env = DummyVecEnv([thunk])
+        env = DummyVecEnv([make_thunk()])
+
+    # Keep VecMonitor for SB3’s progress.csv (learning curves)
     env = VecMonitor(env)
     return env
 
@@ -44,7 +65,8 @@ def train(app: str, algo: str, timesteps: int, n_envs: int, reward_cfg: str | No
     log_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    env = build_vec_env(app, n_envs=n_envs, reward_cfg=reward_cfg)
+    # pass log_dir so each worker writes its monitor CSV there
+    env = build_vec_env(app, n_envs=n_envs, reward_cfg=reward_cfg, log_dir=log_dir)
     model = make_model(algo, env)
 
     latest = str(model_dir / f"{algo.upper()}_{app}_{persona}_latest.zip")
@@ -52,7 +74,7 @@ def train(app: str, algo: str, timesteps: int, n_envs: int, reward_cfg: str | No
 
     callbacks = [
         ProgressPrinter(print_freq=50000),
-        LatestModelSaver(save_path=latest, save_freq=max(100000 // max(n_envs,1), 10000)),
+        LatestModelSaver(save_path=latest, save_freq=max(100000 // max(n_envs, 1), 10000)),
         BestModelSaver(save_path=best),
         PeriodicCheckpointSaver(folder=str(ckpt_dir), save_freq=500000, prefix=f"{algo}_{app}_{persona}"),
     ]

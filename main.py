@@ -4,11 +4,43 @@ import glob
 import subprocess
 import sys
 from pathlib import Path
+import csv
 
 APPS = ["pacman", "snake"]
 ALGOS = ["ppo", "a2c"]
 
 # ---------- FS helpers ----------
+def merge_monitor_csvs(log_dir: str) -> str:
+    """
+    Merge all monitor_*.csv files in log_dir into monitor_merged.csv
+    (keeps the header from the first file, skips others).
+    Returns the merged file path.
+    """
+    p = Path(log_dir)
+    files = sorted(p.glob("monitor_*.csv"))
+    if not files:
+        one = p / "monitor.csv"
+        return str(one) if one.exists() else ""
+
+    out_path = p / "monitor_merged.csv"
+    with out_path.open("w", newline="") as fout:
+        writer = None
+        for i, f in enumerate(files):
+            with f.open("r", newline="") as fin:
+                reader = csv.reader(fin)
+                header = next(reader, None)
+                if header is None:
+                    continue
+                if writer is None:
+                    writer = csv.writer(fout)
+                    writer.writerow(header)
+                # skip header for subsequent files
+                for row in reader:
+                    if row:
+                        writer.writerow(row)
+    return str(out_path)
+
+
 def stems(paths):
     out = []
     for p in paths:
@@ -154,13 +186,22 @@ def action_plot_single():
     persona = pick(personas, "Persona")
 
     log_dir, *_ = paths_for(app, persona)
-    # Try common plot script names — adjust to your file names
+
+    episodes_csv = merge_monitor_csvs(log_dir)
+    if not episodes_csv:
+        print("No monitor CSVs found. Train first.")
+        return
+
+    summary_csv = str(Path(log_dir, "progress.csv"))
+
     if os.path.exists("notebooks/plot_results.py"):
-        run([sys.executable, "notebooks/plot_results.py", "--log_dir", log_dir])
-    elif os.path.exists("notebooks/plot_results.ipynb"):
-        print("Use your notebook to plot; CSVs are in:", log_dir)
+        run([sys.executable, "notebooks/plot_results.py",
+             "--episodes_csv", episodes_csv,
+             "--summary_csv", summary_csv,
+             "--outdir", str(Path(log_dir, "plots"))])
     else:
-        print("Missing notebooks/plot_results.py. Point your plot script at:", log_dir)
+        print("Missing notebooks/plot_results.py")
+        print("Use this episodes CSV:", episodes_csv)
 
 def action_plot_compare():
     app = pick(APPS, "App")
