@@ -3,7 +3,6 @@ from typing import Optional, Dict, Any
 import gymnasium as gym
 import numpy as np
 
-# Remove YAML if not needed — leave support here for personas later
 try:
     import yaml
     _HAS_YAML = True
@@ -36,6 +35,7 @@ class PacmanRewardWrapper(gym.Wrapper):
     - +survival bonus each timestep
     - -penalty for too long no score
     - -big penalty on death
+    Also exposes per-episode metrics in info["metrics"] for training logs.
     """
     def __init__(self, env, cfg: Optional[Dict[str, Any]] = None, yaml_path: Optional[str] = None):
         super().__init__(env)
@@ -55,17 +55,25 @@ class PacmanRewardWrapper(gym.Wrapper):
         self.death_penalty = float(cfg.get("death_penalty", -20.0))
 
         self._since_score = 0
+        self._steps = 0
+        self._pellets = 0
+        self._deaths = 0
 
     def reset(self, **kwargs):
         self._since_score = 0
-        return self.env.reset(**kwargs)
+        self._steps = 0
+        self._pellets = 0
+        self._deaths = 0
+
+        res = self.env.reset(**kwargs)
+        obs, info = res if isinstance(res, tuple) else (res, {})
+        info.setdefault("metrics", {})
+        return obs, info
 
     def step(self, action):
         obs, reward, done, truncated, info = self.env.step(action)
 
         shaped = reward * self.score_scale
-
-        # Survival: encourage progress searching
         shaped += self.survive_bonus
 
         if reward > 0:
@@ -76,12 +84,22 @@ class PacmanRewardWrapper(gym.Wrapper):
         if self._since_score > self.no_score_patience:
             shaped += self.no_score_penalty
 
-        # Big penalty if killed
         if done:
             shaped += self.death_penalty
 
-        return obs, shaped, done, truncated, info
+        self._steps += 1
+        m = info.setdefault("metrics", {})
+        m["steps"] = self._steps
 
+        if reward > 0:
+            self._pellets += 1
+            m["pellets_eaten"] = m.get("pellets_eaten", 0) + 1
+
+        if done and not truncated:
+            self._deaths += 1
+            m["deaths"] = m.get("deaths", 0) + 1
+
+        return obs, shaped, done, truncated, info
 
 def make_rewarded_env(env, yaml_path: Optional[str] = None):
     """

@@ -179,18 +179,23 @@ def action_watch():
 
 def action_plot_single():
     app = pick(APPS, "App")
-    personas = existing_personas_for_app(app)
-    if not personas:
-        print("No personas found.")
-        return
-    persona = pick(personas, "Persona")
-
+    persona = pick(existing_personas_for_app(app), "Persona")
     log_dir, *_ = paths_for(app, persona)
 
-    episodes_csv = merge_monitor_csvs(log_dir)
-    if not episodes_csv:
-        print("No monitor CSVs found. Train first.")
-        return
+    # NEW: prefer training metrics if present
+    train_csv = Path(log_dir, "episodes_train.csv")
+    if train_csv.exists():
+        episodes_csv = str(train_csv)
+    else:
+        episodes_csv = merge_monitor_csvs(log_dir)  # your existing function
+        if not episodes_csv:
+            # also allow progress.csv as a fallback for quick plots
+            prog = Path(log_dir, "progress.csv")
+            if prog.exists():
+                episodes_csv = str(prog)
+            else:
+                print("No monitor CSVs found. Train first.")
+                return
 
     summary_csv = str(Path(log_dir, "progress.csv"))
 

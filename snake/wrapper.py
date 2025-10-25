@@ -1,4 +1,3 @@
-# Snake/wrapper.py
 from typing import Optional, Dict, Any
 import gym as gym_legacy
 import numpy as np
@@ -11,7 +10,6 @@ except Exception:
 
 
 class GymV21toGymnasium(gym_legacy.Wrapper):
-    """Make legacy Gym snake env behave like Gymnasium env."""
     def reset(self, **kwargs):
         obs = self.env.reset(**kwargs)
         return obs, {}
@@ -22,14 +20,13 @@ class GymV21toGymnasium(gym_legacy.Wrapper):
 
 
 class SnakeActionListWrapper(gym_legacy.Wrapper):
-    """If env requires list actions, adapt here"""
     def step(self, action):
         return self.env.step([int(action)])
 
 
 class SnakeRewardWrapper(gym_legacy.Wrapper):
     """
-    Reward shaping:
+    Reward shaping + per-episode metrics in info["metrics"].
     - +1 apple
     - small + for moving closer to food
     - small - for moving away
@@ -51,30 +48,53 @@ class SnakeRewardWrapper(gym_legacy.Wrapper):
         self.away_from_food = float(cfg.get("away_from_food", -0.2))
         self.death_penalty = float(cfg.get("death_penalty", -20.0))
 
+        self._prev_head = None
+        self._steps = 0
+        self._food = 0
+        self._deaths = 0
+
+    def reset(self, **kwargs):
+        self._prev_head = None
+        self._steps = 0
+        self._food = 0
+        self._deaths = 0
+
+        res = self.env.reset(**kwargs)
+        obs, info = res if isinstance(res, tuple) else (res, {})
+        info.setdefault("metrics", {})
+        return obs, info
+
     def step(self, action):
         obs, reward, done, truncated, info = self.env.step(action)
         shaped = 0.0
 
-        # Food-based shaping
-        # info is from snake env — assume contains food_pos & head_pos
         food = info.get("food")
         head = info.get("head")
         if food is not None and head is not None:
-            prev_dist = np.linalg.norm(np.subtract(self._prev_head, food)) if hasattr(self, "_prev_head") else None
+            prev_dist = np.linalg.norm(np.subtract(self._prev_head, food)) if self._prev_head is not None else None
             curr_dist = np.linalg.norm(np.subtract(head, food))
             if prev_dist is not None:
-                if curr_dist < prev_dist:
-                    shaped += self.toward_food
-                else:
-                    shaped += self.away_from_food
+                shaped += self.toward_food if curr_dist < prev_dist else self.away_from_food
             self._prev_head = np.array(head)
 
-        # Apple reward comes via env.reward
         if reward > 0:
             shaped += self.apple_bonus
 
         if done:
             shaped += self.death_penalty
+
+        # --- metrics for training logs ---
+        self._steps += 1
+        m = info.setdefault("metrics", {})
+        m["steps"] = self._steps
+
+        if reward > 0:
+            self._food += 1
+            m["apples_eaten"] = m.get("apples_eaten", 0) + 1  # rename to "food_eaten" if you prefer
+
+        if done and not truncated:
+            self._deaths += 1
+            m["deaths"] = m.get("deaths", 0) + 1
 
         return obs, shaped, done, truncated, info
 
