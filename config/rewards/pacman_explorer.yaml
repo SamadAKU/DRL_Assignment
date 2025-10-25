@@ -3,5 +3,5 @@ weights:
   alive: 0.01
   pellet: 1.0
   death: -10.0
-  explore: 0.01
+  explore: 0.05
   truncation: -2.0

@@ -180,33 +180,55 @@ def action_watch():
 def action_plot_single():
     app = pick(APPS, "App")
     persona = pick(existing_personas_for_app(app), "Persona")
-    log_dir, *_ = paths_for(app, persona)
 
-    # NEW: prefer training metrics if present
-    train_csv = Path(log_dir, "episodes_train.csv")
-    if train_csv.exists():
-        episodes_csv = str(train_csv)
-    else:
-        episodes_csv = merge_monitor_csvs(log_dir)  # your existing function
-        if not episodes_csv:
-            # also allow progress.csv as a fallback for quick plots
-            prog = Path(log_dir, "progress.csv")
-            if prog.exists():
-                episodes_csv = str(prog)
-            else:
-                print("No monitor CSVs found. Train first.")
-                return
+    log_root = Path("logs") / app / persona
+    if not log_root.exists():
+        print("No logs yet for this persona.")
+        return
 
-    summary_csv = str(Path(log_dir, "progress.csv"))
+    # 1) Prefer episodes_train.csv (A2C/PPO), pick the most recent if multiple
+    train_csvs = list(log_root.rglob("episodes_train.csv"))  # e.g., logs/pacman/pacman_explorer/a2c/episodes_train.csv
+    episodes_csv = None
+    if train_csvs:
+        episodes_csv = str(max(train_csvs, key=lambda p: p.stat().st_mtime))
+
+    # 2) If not found, try your old monitor merge
+    if not episodes_csv:
+        episodes_csv = merge_monitor_csvs(log_root)  # your existing helper returns a path or None
+
+    # 3) As a last resort, accept progress.csv (VecMonitor)
+    if not episodes_csv:
+        prog = list(log_root.rglob("progress.csv"))
+        if prog:
+            episodes_csv = str(max(prog, key=lambda p: p.stat().st_mtime))
+
+    if not episodes_csv:
+        print("No monitor or training CSVs found. Train first.")
+        return
+
+    # summary_csv beside the chosen episodes file, or nearest progress.csv
+    ep_path = Path(episodes_csv)
+    summary_csv = ep_path.with_name("progress.csv")
+    if not summary_csv.exists():
+        # scan up to find nearest progress.csv
+        progs = list(ep_path.parent.rglob("progress.csv"))
+        if progs:
+            summary_csv = max(progs, key=lambda p: p.stat().st_mtime)
+        else:
+            summary_csv = None
+
+    outdir = ep_path.parent / "plots"
+    outdir.mkdir(parents=True, exist_ok=True)
 
     if os.path.exists("notebooks/plot_results.py"):
-        run([sys.executable, "notebooks/plot_results.py",
-             "--episodes_csv", episodes_csv,
-             "--summary_csv", summary_csv,
-             "--outdir", str(Path(log_dir, "plots"))])
+        cmd = [sys.executable, "notebooks/plot_results.py", "--episodes_csv", str(ep_path),
+               "--outdir", str(outdir)]
+        if summary_csv:
+            cmd += ["--summary_csv", str(summary_csv)]
+        run(cmd)
     else:
         print("Missing notebooks/plot_results.py")
-        print("Use this episodes CSV:", episodes_csv)
+        print("Use this episodes CSV:", str(ep_path))
 
 def action_plot_compare():
     app = pick(APPS, "App")
