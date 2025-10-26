@@ -25,18 +25,11 @@ def _load_reward_cfg(reward_cfg_path: Optional[str]) -> Optional[dict]:
 
 def make_env(app: str, for_watch: bool = False, reward_cfg_path=None):
     key = app.strip().lower()
-    reward_cfg = _load_reward_cfg(reward_cfg_path)
-
-    if key in {"pacman", "ms_pacman", "mspacman"}:
-        return make_pacman_env(
-            reward_cfg=reward_cfg,
-            eval_mode=False,
-            render_human=for_watch,
-        )
 
     if key in {"snake", "snake-v0", "gym_snake:snake-v0"}:
-        return make_snake_env(
-            reward_cfg=reward_cfg,
-            eval_mode=False,
-            render_human=for_watch,
-        )
+        return make_snake_env(app="snake", for_watch=for_watch, reward_cfg=None)
+
+    if key in {"pacman", "ms_pacman", "mspacman"}:
+        return make_pacman_env(for_watch=for_watch, reward_cfg_path=reward_cfg_path)
+
+    raise ValueError(f"Unknown app '{app}'")
