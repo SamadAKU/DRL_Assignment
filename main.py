@@ -60,19 +60,35 @@ def existing_personas_for_app(app: str):
     return sorted(cfg_personas | model_dirs)
 
 def available_models(app: str, persona: str):
-    """Return {'best': path or '', 'latest': path or ''} for any algo found."""
-    base = Path(f"models/{app}/{persona}")
-    found = {}
-    if not base.exists():
-        return found
-    for z in base.glob("*.zip"):
-        found.setdefault(z.stem.split("_")[0].lower(), {"best": "", "latest": ""})
-    for algo in list(found.keys()):
-        best = base / f"{algo.upper()}_{app}_{persona}_best.zip"
-        latest = base / f"{algo.upper()}_{app}_{persona}_latest.zip"
-        found[algo]["best"] = str(best) if best.exists() else ""
-        found[algo]["latest"] = str(latest) if latest.exists() else ""
-    return found
+    """
+    Look for *best.zip / *latest.zip under:
+      logs/<app>/<persona>/<algo>/
+      logs/<app>/<persona>/<algo>/checkpoints/
+    Return: {algo: {"best": path or "", "latest": path or ""}}
+    """
+    root = Path(f"logs/{app}/{persona}")
+    out: dict[str, dict[str, str]] = {}
+    if not root.exists():
+        return out
+
+    for algo_dir in sorted([p for p in root.iterdir() if p.is_dir()]):
+        # search both the algo dir and its checkpoints subdir
+        candidates = [algo_dir, algo_dir / "checkpoints"]
+        best_path = ""
+        latest_path = ""
+        for c in candidates:
+            if not c.exists():
+                continue
+            # accept either the short names or the long SB3-style names
+            for z in c.glob("*.zip"):
+                name = z.name.lower()
+                if "best" in name:
+                    best_path = str(z)
+                elif "latest" in name:
+                    latest_path = str(z)
+        if best_path or latest_path:
+            out[algo_dir.name.lower()] = {"best": best_path, "latest": latest_path}
+    return out
 
 def pick(items, title):
     """Numbered picker. Returns selected item (string)."""

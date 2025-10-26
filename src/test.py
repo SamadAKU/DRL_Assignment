@@ -18,7 +18,6 @@ def _load(algo: str, path: str):
         return A2C.load(path, device="auto")
     raise ValueError("algo must be ppo or a2c")
 
-
 def _safe_render(env) -> None:
     """
     Be tolerant of legacy gym/game renderers:
@@ -38,7 +37,6 @@ def _safe_render(env) -> None:
     except Exception:
         # Don't let rendering kill watching
         pass
-
 
 def watch(app: str, algo: str, model_path: str, episodes: int):
     # Build the same env stack you use in training, but with for_watch=True (no reward shaping)
@@ -81,7 +79,6 @@ def watch(app: str, algo: str, model_path: str, episodes: int):
         env.close()
     except Exception:
         pass
-
 
 def main():
     ap = argparse.ArgumentParser()
