@@ -3,8 +3,9 @@ import gymnasium as gym
 from gymnasium.wrappers import RecordEpisodeStatistics, FlattenObservation
 from gymnasium import spaces
 import numpy as np
-
+import yaml
 from src.common.wrappers import SimpleFrameStack
+import os            # <-- add this
 
 class Controls(gym.ActionWrapper):
     """Map Discrete(4) -> ALE MsPacman actions (UP,DOWN,LEFT,RIGHT)."""
@@ -123,9 +124,32 @@ class AleScoreTracker(gym.Wrapper):
             m["episode_ale_score"] = self._ale_score
         return obs, reward, terminated, truncated, info
 
-def make_pacman_env(reward_cfg=None, eval_mode: bool = False, render_human: bool = False):
-    # Ensure ALE registration in each worker on Windows
-    import ale_py
+def make_pacman_env(
+    *, 
+    for_watch: bool = False,
+    reward_cfg_path: str | None = None,
+    # legacy kwargs kept for backwards-compat (safe to ignore if unused elsewhere)
+    reward_cfg: dict | None = None,
+    eval_mode: bool = False,
+    render_human: bool | None = None,
+):
+    """
+    Unified Pacman env factory used by src.common.factory.make_env.
+    - `for_watch` toggles human rendering.
+    - `reward_cfg_path` (yaml) is loaded and passed to PacmanRewardWrapper.
+    - legacy args (`reward_cfg`, `render_human`) still work.
+    """
+    # Windows spawn: make sure ALE registers in each subprocess
+    import ale_py  # noqa: F401
+
+    # prefer for_watch unless caller explicitly passed render_human
+    if render_human is None:
+        render_human = bool(for_watch)
+
+    # load reward cfg if a path is provided
+    if reward_cfg is None and reward_cfg_path and os.path.exists(reward_cfg_path):
+        with open(reward_cfg_path, "r") as f:
+            reward_cfg = yaml.safe_load(f)
 
     env = gym.make(
         "ALE/MsPacman-v5",
@@ -139,5 +163,5 @@ def make_pacman_env(reward_cfg=None, eval_mode: bool = False, render_human: bool
     env = PacmanRewardWrapper(env, reward_cfg=reward_cfg)
     env = AleScoreTracker(env)
     env = FlattenObservation(env)
-    env = RecordEpisodeStatistics(env)  # <-- no deque_size (compat with your Gymnasium)
+    env = RecordEpisodeStatistics(env)
     return env
