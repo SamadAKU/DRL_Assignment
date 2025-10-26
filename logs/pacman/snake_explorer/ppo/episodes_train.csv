@@ -1,9 +1,0 @@
-app,algo,persona,episode,ep_len,ep_return,timestamp_ms,ale_score,deaths,episode_ale_score,pellets,score_delta,steps
-pacman,ppo,snake_explorer,0,437,75.0,1761456330287,75.0,1.0,75.0,1.0,120.0,437.0
-pacman,ppo,snake_explorer,0,461,195.0,1761456330444,195.0,1.0,195.0,1.0,240.0,461.0
-pacman,ppo,snake_explorer,0,469,165.0,1761456330497,165.0,1.0,165.0,1.0,210.0,469.0
-pacman,ppo,snake_explorer,0,503,145.0,1761456330707,145.0,1.0,145.0,1.0,190.0,503.0
-pacman,ppo,snake_explorer,0,509,215.0,1761456330749,215.0,1.0,215.0,1.0,260.0,509.0
-pacman,ppo,snake_explorer,0,517,175.0,1761456330801,175.0,1.0,175.0,1.0,220.0,517.0
-pacman,ppo,snake_explorer,0,561,235.0,1761456331074,235.0,1.0,235.0,1.0,280.0,561.0
-pacman,ppo,snake_explorer,0,599,205.0,1761456331300,205.0,1.0,205.0,1.0,250.0,599.0
