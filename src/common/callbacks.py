@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Deque, List, Optional, Tuple, Dict
+from typing import Deque, List, Dict
 from collections import deque, defaultdict
 import os
 import csv
@@ -24,7 +24,7 @@ class ProgressPrinter(BaseCallback):
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
-        for info in infos or []:
+        for info in infos:
             ep = info.get("episode")
             if ep:
                 self._episode_returns.append(float(ep.get("r", 0.0)))
@@ -64,7 +64,7 @@ class BestModelSaver(BaseCallback):
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
-        for info in infos or []:
+        for info in infos:
             ep = info.get("episode")
             if ep:
                 self._ep_returns.append(float(ep.get("r", 0.0)))
@@ -95,14 +95,11 @@ class PeriodicCheckpointSaver(BaseCallback):
 
 class EpisodeMetricsLogger(BaseCallback):
     """
-    NEW: Collect per-episode custom metrics DURING TRAINING.
+    Collect per-episode custom metrics during training and write to CSV.
 
-    - Reads custom counters from infos[i]['metrics'] (e.g., apples_eaten, pellets_eaten, dots_eaten, etc.)
-    - Accumulates them over the episode.
-    - When VecMonitor ends an episode (infos[i]['episode'] present), writes a row to <log_dir>/episodes_train.csv:
-        app, algo, persona, episode, ep_len, ep_return, <custom metric columns...>
-
-    This is CSV-only; it does not touch your SB3 logger or training loop semantics.
+    - Reads counters from infos[i]['metrics'] (e.g., pellets, deaths, unique_tiles, score_delta, truncations, episode_ale_score).
+    - Accumulates over the episode.
+    - On episode end, writes a row to <log_dir>/episodes_train.csv with a stable, expanding header.
     """
     def __init__(self, log_dir: str, app: str, algo: str, persona: str):
         super().__init__()
@@ -114,6 +111,7 @@ class EpisodeMetricsLogger(BaseCallback):
         os.makedirs(self.log_dir, exist_ok=True)
         self._csv_path = os.path.join(self.log_dir, "episodes_train.csv")
         self._writer: csv.DictWriter | None = None
+        self._fh = None
         self._accum: List[Dict[str, float]] = []
 
     def _on_training_start(self) -> None:
@@ -122,26 +120,37 @@ class EpisodeMetricsLogger(BaseCallback):
         return True
 
     def _ensure_writer(self, row: Dict[str, float]) -> None:
+        # initial fixed columns + any discovered metric names
+        base_cols = [
+            "app", "algo", "persona", "episode",
+            "ep_len", "ep_return", "timestamp_ms",
+        ]
+        metric_cols = sorted([k for k in row.keys() if k not in base_cols])
+        cols = base_cols + metric_cols
+
         if self._writer is None:
-            f = open(self._csv_path, "w", newline="")
-            self._writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+            self._fh = open(self._csv_path, "w", newline="")
+            self._writer = csv.DictWriter(self._fh, fieldnames=cols)
             self._writer.writeheader()
             return
-        # If new keys appeared mid-run, expand header safely
-        missing = [k for k in row.keys() if k not in self._writer.fieldnames]
-        if missing:
-            # Read old, rewrite with expanded header
+
+        # Expand header deterministically if new columns appear
+        current = list(self._writer.fieldnames)
+        if set(cols) - set(current):
+            all_cols = current + [c for c in cols if c not in current]
+            # read old data
+            self._fh.close()
             with open(self._csv_path, "r", newline="") as f:
                 rows = list(csv.DictReader(f))
-            fieldnames = self._writer.fieldnames + missing
+            # rewrite with new header
             with open(self._csv_path, "w", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=fieldnames)
+                w = csv.DictWriter(f, fieldnames=all_cols)
                 w.writeheader()
                 for r in rows:
                     w.writerow(r)
-            # Reopen append with new schema
-            f = open(self._csv_path, "a", newline="")
-            self._writer = csv.DictWriter(f, fieldnames=fieldnames)
+            # reopen for append
+            self._fh = open(self._csv_path, "a", newline="")
+            self._writer = csv.DictWriter(self._fh, fieldnames=all_cols)
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -149,17 +158,13 @@ class EpisodeMetricsLogger(BaseCallback):
             return True
 
         for i, info in enumerate(infos):
-            # accumulate custom metrics during the episode
             m = info.get("metrics")
             if m:
                 acc = self._accum[i]
                 for k, v in m.items():
-                    try:
-                        acc[k] += float(v)
-                    except Exception:
-                        pass
+                    # convert to float if possible; else keep original
+                    acc[k] = float(v) if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace('.','',1).isdigit()) else v
 
-            # episode end: VecMonitor injects info["episode"]={"r":..,"l":..}
             ep = info.get("episode")
             if ep:
                 row = {
@@ -171,13 +176,16 @@ class EpisodeMetricsLogger(BaseCallback):
                     "ep_return": float(ep.get("r", 0.0)),
                     "timestamp_ms": int(time.time() * 1000),
                 }
-                # add accumulated custom metrics for this env
                 for k, v in self._accum[i].items():
                     row[k] = v
-                # reset env accumulator
                 self._accum[i].clear()
 
                 self._ensure_writer(row)
                 self._writer.writerow(row)
 
         return True
+
+    def _on_training_end(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None

@@ -68,7 +68,7 @@ def main():
     Algo = ALGOS[algo]
     model = Algo("MlpPolicy", venv, verbose=0)
 
-    # Callbacks (EpisodeMetricsLogger writes episodes_train.csv with apples/pellets/etc.)
+    # Callbacks
     callback = [
         ProgressPrinter(print_freq=args.print_freq),
         LatestModelSaver(save_dir=str(ckpt_dir), filename=f"{algo}_{app}_{persona}_latest"),

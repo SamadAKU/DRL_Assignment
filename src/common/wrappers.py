@@ -1,13 +1,12 @@
-# src/common/wrappers.py
 import numpy as np
 from collections import deque
 import gymnasium as gym
 from gymnasium import spaces
 
+
 class AddChannelWrapper:
     """
     Ensure obs is channel-first (C,H,W).
-    Handles Gymnasium (reset->(obs,info), step->5-tuple) and legacy Gym.
     """
     def __init__(self, env):
         self.env = env
@@ -17,20 +16,12 @@ class AddChannelWrapper:
         self.spec = getattr(env, "spec", None)
 
     def reset(self, **kwargs):
-        out = self.env.reset(**kwargs)
-        if isinstance(out, tuple) and len(out) == 2:
-            obs, info = out
-            return self._to_chw(obs), info
-        return self._to_chw(out)
+        obs, info = self.env.reset(**kwargs)
+        return self._to_chw(obs), info
 
     def step(self, action):
-        out = self.env.step(action)
-        if len(out) == 5:
-            obs, reward, done, truncated, info = out
-            return self._to_chw(obs), reward, done, truncated, info
-        else:
-            obs, reward, done, info = out
-            return self._to_chw(obs), reward, done, info
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return self._to_chw(obs), reward, terminated, truncated, info
 
     def render(self, *a, **k):
         return self.env.render(*a, **k)
@@ -42,19 +33,17 @@ class AddChannelWrapper:
         arr = np.asarray(obs)
         if arr.ndim == 2:
             return arr[None, :, :]
-        if arr.ndim == 3 and arr.shape[0] in (1,3,4):  # already C,H,W
+        if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):   # already C,H,W
             return arr
-        if arr.ndim == 3 and arr.shape[-1] in (1,3,4): # H,W,C -> C,H,W
-            return np.transpose(arr, (2,0,1))
+        if arr.ndim == 3 and arr.shape[-1] in (1, 3, 4):  # H,W,C -> C,H,W
+            return np.transpose(arr, (2, 0, 1))
         return arr
 
 
 class SimpleFrameStack(gym.Wrapper):
     """
     Gymnasium-compatible frame stacker.
-    - Stacks observations along `axis` (default last).
-    - Updates observation_space so SB3 builds the right MLP input size.
-    - Works for vector RAM (e.g., (128,)) and images (HWC/CHW).
+    Stacks along `axis` (default last).
     """
     def __init__(self, env, num_stack: int = 4, axis: int = -1):
         super().__init__(env)
@@ -62,42 +51,21 @@ class SimpleFrameStack(gym.Wrapper):
         self.axis = int(axis)
         self.frames = deque(maxlen=self.k)
 
-        # --- build new observation_space ---
         orig_space = env.observation_space
-        if not isinstance(orig_space, spaces.Box):
-            # Fallback: let FlattenObservation handle weird spaces
-            self.observation_space = orig_space
-        else:
+        if isinstance(orig_space, spaces.Box):
             shape = tuple(orig_space.shape)
-            if len(shape) == 0:
-                # scalar → repeat k times
-                new_shape = (self.k,)
-            else:
-                axis = self.axis if self.axis >= 0 else (len(shape) + self.axis)
-                # expand the stacking axis by k (vector last-axis default)
-                new_shape = list(shape)
-                new_shape[axis] = new_shape[axis] * self.k
-                new_shape = tuple(new_shape)
-
-            # Repeat bounds along that axis
-            low = orig_space.low
-            high = orig_space.high
-            # Ensure arrays
-            low = np.asarray(low)
-            high = np.asarray(high)
-
-            # Broadcast-then-concat k times along axis
-            lows = [low] * self.k
-            highs = [high] * self.k
-            new_low = np.concatenate(lows, axis=self.axis) if low.size else low
-            new_high = np.concatenate(highs, axis=self.axis) if high.size else high
-
+            axis = self.axis if self.axis >= 0 else (len(shape) + self.axis)
+            new_shape = list(shape)
+            new_shape[axis] = new_shape[axis] * self.k
+            new_shape = tuple(new_shape)
             self.observation_space = spaces.Box(
-                low=new_low.min() if new_low.shape != new_shape else new_low,
-                high=new_high.max() if new_high.shape != new_shape else new_high,
+                low=np.min(orig_space.low),
+                high=np.max(orig_space.high),
                 shape=new_shape,
                 dtype=orig_space.dtype,
             )
+        else:
+            self.observation_space = orig_space
 
     def _stack(self):
         return np.concatenate(list(self.frames), axis=self.axis)
@@ -111,11 +79,6 @@ class SimpleFrameStack(gym.Wrapper):
         return self._stack(), info
 
     def step(self, action):
-        out = self.env.step(action)
-        if len(out) == 5:
-            obs, reward, terminated, truncated, info = out
-        else:
-            obs, reward, terminated, info = out
-            truncated = False
+        obs, reward, terminated, truncated, info = self.env.step(action)
         self.frames.append(np.asarray(obs))
         return self._stack(), reward, terminated, truncated, info
