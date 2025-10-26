@@ -5,8 +5,7 @@ from gymnasium import spaces
 import numpy as np
 import yaml
 from src.common.wrappers import SimpleFrameStack
-import os            # <-- add this
-
+import os        
 class Controls(gym.ActionWrapper):
     """Map Discrete(4) -> ALE MsPacman actions (UP,DOWN,LEFT,RIGHT)."""
     def __init__(self, env: gym.Env):
