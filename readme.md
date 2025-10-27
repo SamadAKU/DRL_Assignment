@@ -7,6 +7,8 @@ This project is designed to train DRL agents in 2 games, Pacman and Snake, using
 The training implementation has been run through both PPO (Proximal Policy Optimization) and A2C (Action-Actor-Critique), allowing multiple agents to be trained and reviewed.
 
 Please Note The Following: 
+
+
 Data for Auxillary Data (pellets, deaths, tiles, apples eaten) was implemented, but not defined in analytics due to not seeing a big change while looking through the data. Files located in Logs->game->persona->algo
 Able to create by using plot single persona within menu
 
