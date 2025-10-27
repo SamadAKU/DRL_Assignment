@@ -183,5 +183,5 @@ Decouple app/env code, training, and testing/eval so the framework is reusable.
 ## Authors
 
 - Alexander Simeon(from gta5) Lowe [@crazycrash115](https://www.github.com/crazycrash115)
-- Ata-US-Samad Khan (Not because he Khant but because he Khan) [@SamadAKU](https://www.github.com/SamadAKU)
+- Ata-US-Samad Khan (Not because he Khan-t but because he Khan) [@SamadAKU](https://www.github.com/SamadAKU)
 
