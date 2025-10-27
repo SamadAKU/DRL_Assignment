@@ -1,7 +1,14 @@
+#some of these might not be necessary idek no mo
 numpy
 torch
 gymnasium
 autorom
 stable-baselines3
 gym==0.26.2
+gymnasium[atari,accept-rom-license]
+ale-py==0.8.1
+shimmy>=1.3.0
+pandas
+matplotlib
+opencv-python
 PyYAML
