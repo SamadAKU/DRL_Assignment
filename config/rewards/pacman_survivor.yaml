@@ -1,7 +1,7 @@
 name: pacman_survivor
 weights:
-  alive: 0.02
-  pellet: 0.5
-  death: -15.0
-  explore: 0.0
-  truncation: -2.0
+  alive: 0.03
+  pellet: 0.2
+  death: -50.0
+  explore: 0.01
+  truncation: -10.0

@@ -14,7 +14,7 @@ from src.common.callbacks import (
     BestModelSaver,
     PeriodicCheckpointSaver,
 )
-from src.common.metrics import EpisodeMetricsLogger  # <-- custom metrics
+from src.common.metrics import EpisodeMetricsLogger 
 
 ALGOS = {"ppo": PPO, "a2c": A2C}
 
@@ -28,6 +28,14 @@ def _persona_from_cfg(path: str | None) -> str:
 
 
 def build_vec_env(app: str, reward_cfg_path: str | None, n_envs: int, log_dir_algo: str):
+    if reward_cfg_path and os.path.exists(reward_cfg_path):
+        try:
+            import yaml
+            with open(reward_cfg_path, "r") as f:
+                _cfg = yaml.safe_load(f)
+            print("[REWARD] Using:", reward_cfg_path, _cfg.get("weights", {}))
+        except Exception as e:
+            print("[REWARD] Could not read", reward_cfg_path, "error:", e)
     def thunk():
         return make_env(app, for_watch=False, reward_cfg_path=reward_cfg_path)
     venv = SubprocVecEnv([thunk for _ in range(n_envs)])
@@ -43,13 +51,14 @@ def main():
     p.add_argument("--n_envs", type=int, default=8)
     p.add_argument("--reward_cfg", default=None)
     p.add_argument("--persona", default=None)
+    p.add_argument("--resume_path", default=None)
     args = p.parse_args()
 
     app = args.app
     algo = args.algo
     persona = args.persona or _persona_from_cfg(args.reward_cfg)
 
-    # Folder paths
+
     log_root = Path("logs") / app / persona
     log_dir_algo = log_root / algo.lower() 
     ckpt_dir = log_dir_algo / "checkpoints"
@@ -57,14 +66,21 @@ def main():
     log_dir_algo.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    # Vec env
+
     venv = build_vec_env(app, args.reward_cfg, args.n_envs, str(log_dir_algo))
 
-    # Algo
-    Algo = ALGOS[algo.lower()]
-    model = Algo("MlpPolicy", venv, verbose=1)
 
-    # Callbacks
+    Algo = ALGOS[algo.lower()]
+    if args.resume_path and os.path.exists(args.resume_path):
+        print(f"[MODEL] Resuming from: {args.resume_path}")
+        model = Algo.load(args.resume_path, env=venv, device="auto")
+        reset_num_timesteps = False
+    else:
+        print("[MODEL] Training from scratch")
+        model = Algo("MlpPolicy", venv, verbose=1)
+        reset_num_timesteps = True
+
+
     callback_list = CallbackList([
         ProgressPrinter(print_freq=50_000),
         LatestModelSaver(save_dir=str(ckpt_dir), filename=f"{algo}_{app}_{persona}_latest"),
@@ -74,10 +90,10 @@ def main():
         EpisodeMetricsLogger(str(log_dir_algo), app, algo.lower(), persona),
     ])
 
-    # Train
-    model.learn(total_timesteps=int(args.timesteps), callback=callback_list)
 
-    # Final latest save
+    model.learn(total_timesteps=int(args.timesteps), callback=callback_list, reset_num_timesteps=reset_num_timesteps)
+
+ 
     latest_path = log_dir_algo / f"{algo}_{app}_{persona}_latest_final"
     model.save(str(latest_path))
 

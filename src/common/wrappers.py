@@ -33,9 +33,9 @@ class AddChannelWrapper:
         arr = np.asarray(obs)
         if arr.ndim == 2:
             return arr[None, :, :]
-        if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):   # already C,H,W
+        if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):  
             return arr
-        if arr.ndim == 3 and arr.shape[-1] in (1, 3, 4):  # H,W,C -> C,H,W
+        if arr.ndim == 3 and arr.shape[-1] in (1, 3, 4): 
             return np.transpose(arr, (2, 0, 1))
         return arr
 

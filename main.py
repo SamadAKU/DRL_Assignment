@@ -72,14 +72,14 @@ def available_models(app: str, persona: str):
         return out
 
     for algo_dir in sorted([p for p in root.iterdir() if p.is_dir()]):
-        # search both the algo dir and its checkpoints subdir
+        
         candidates = [algo_dir, algo_dir / "checkpoints"]
         best_path = ""
         latest_path = ""
         for c in candidates:
             if not c.exists():
                 continue
-            # accept either the short names or the long SB3-style names
+            
             for z in c.glob("*.zip"):
                 name = z.name.lower()
                 if "best" in name:
@@ -122,15 +122,14 @@ def run(cmd):
     subprocess.run(cmd, check=False)
 
 
-# ---------- Paths ----------
 def paths_for(app: str, persona: str):
     log_dir   = f"logs/{app}/{persona}/train"
     ckpt_dir  = f"models/{app}/{persona}/checkpoints"
     model_dir = f"models/{app}/{persona}"
-    reward_cfg = f"config/rewards/{persona}.yaml"  # optional; may not exist
+    reward_cfg = f"config/rewards/{persona}.yaml"  
     return log_dir, ckpt_dir, model_dir, reward_cfg
 
-# ---------- Actions ----------
+
 def action_train():
     app = pick(APPS, "App")
     algo = pick(ALGOS, "Algorithm")
@@ -168,7 +167,7 @@ def action_watch():
     persona = pick(personas, "Persona")
 
     models = available_models(app, persona)
-    # Prefer the selected algo; fall back if no files yet
+   
     model_path = ""
     if algo in models:
         model_path = models[algo]["best"] or models[algo]["latest"]
@@ -202,17 +201,17 @@ def action_plot_single():
         print("No logs yet for this persona.")
         return
 
-    # 1) Prefer episodes_train.csv (A2C/PPO), pick the most recent if multiple
-    train_csvs = list(log_root.rglob("episodes_train.csv"))  # e.g., logs/pacman/pacman_explorer/a2c/episodes_train.csv
+ 
+    train_csvs = list(log_root.rglob("episodes_train.csv"))
     episodes_csv = None
     if train_csvs:
         episodes_csv = str(max(train_csvs, key=lambda p: p.stat().st_mtime))
 
-    # 2) If not found, try your old monitor merge
+ 
     if not episodes_csv:
-        episodes_csv = merge_monitor_csvs(log_root)  # your existing helper returns a path or None
+        episodes_csv = merge_monitor_csvs(log_root)  
 
-    # 3) As a last resort, accept progress.csv (VecMonitor)
+ 
     if not episodes_csv:
         prog = list(log_root.rglob("progress.csv"))
         if prog:
@@ -222,7 +221,7 @@ def action_plot_single():
         print("No monitor or training CSVs found. Train first.")
         return
 
-    # summary_csv beside the chosen episodes file, or nearest progress.csv
+ 
     ep_path = Path(episodes_csv)
     summary_csv = ep_path.with_name("progress.csv")
     if not summary_csv.exists():
@@ -245,6 +244,14 @@ def action_plot_single():
     else:
         print("Missing notebooks/plot_results.py")
         print("Use this episodes CSV:", str(ep_path))
+
+def action_plot_explorer_survivor():
+    script = "notebooks/plot_explorer_survival_comparisons.py"
+    if not os.path.exists(script):
+        print("Missing:", script)
+        return
+    cmd = [sys.executable, script]
+    run(cmd)
 
 def action_plot_compare():
     app = pick(APPS, "App")
@@ -270,8 +277,8 @@ def action_plot_compare():
     metric = prompt_str("Metric (x-axis key)", "ep_return")
 
     script_candidates = [
-        "notebooks/plot_comare.py",      # your renamed one
-        "notebooks/compare_results.py",  # common alt
+        "notebooks/plot_comare.py",     
+        "notebooks/compare_results.py",  
     ]
     script = next((s for s in script_candidates if os.path.exists(s)), "")
     if not script:
@@ -285,22 +292,22 @@ def action_plot_compare():
 
 def main():
     MENU = [
-        "Train",
         "Watch (play current model)",
-        "Plot single persona",
-        "Compare personas",
+        "Train",
+        "Plot single persona (Rewards)",
+        "Compare personas (Data Analytics)",
         "Quit",
     ]
     while True:
         choice = pick(MENU, "Main Menu")
-        if choice == "Train":
-            action_train()
-        elif choice.startswith("Watch"):
+        if choice.startswith("Watch"):
             action_watch()
+        elif choice == "Train":
+            action_train()
         elif choice.startswith("Plot single"):
             action_plot_single()
-        elif choice.startswith("Compare"):
-            action_plot_compare()
+        elif choice.startswith("Compare personas"):
+            action_plot_explorer_survivor()
         else:
             print("bye")
             break

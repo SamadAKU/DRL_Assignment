@@ -28,11 +28,11 @@ class EpisodeMetricsLogger(BaseCallback):
         self._writer: csv.DictWriter | None = None
         self._fh = None
 
-        # one accumulator dict per env
+   
         self._accum: List[Dict[str, float]] = []
-        # track all metric keys we’ve seen so header stays stable
+       
         self._seen_metric_keys: set[str] = set()
-        # fallback episode counters per env if the env doesn’t provide episode_number
+      
         self._ep_counter_per_env: List[int] = []
 
     def _on_training_start(self) -> None:
@@ -56,7 +56,7 @@ class EpisodeMetricsLogger(BaseCallback):
 
     def _ensure_writer(self, row: Dict[str, float]) -> None:
         base_cols = ["app", "algo", "persona", "episode", "ep_len", "ep_return", "timestamp_ms"]
-        # include all metric keys we’ve seen so far (plus any in this row)
+       
         self._seen_metric_keys.update([k for k in row.keys() if k not in base_cols])
         metric_cols = sorted(self._seen_metric_keys)
         cols = base_cols + metric_cols
@@ -69,7 +69,7 @@ class EpisodeMetricsLogger(BaseCallback):
 
         current = list(self._writer.fieldnames)
         if set(cols) - set(current):
-            # expand header: rewrite file preserving old rows
+            
             self._fh.close()
             with open(self._csv_path, "r", newline="") as f:
                 rows = list(csv.DictReader(f))
@@ -87,18 +87,18 @@ class EpisodeMetricsLogger(BaseCallback):
             return True
 
         for i, info in enumerate(infos):
-            # 1) accumulate step-delta metrics
+           
             m = info.get("metrics")
             if m:
                 acc = self._accum[i]
                 for k, v in m.items():
                     num = self._coerce_num(v)
                     if num is not None:
-                        acc[k] += num               # <-- accumulate!
+                        acc[k] += num               
                         self._seen_metric_keys.add(k)
-                    # non-numeric values are ignored (or handle them separately if you need)
+                    
 
-            # 2) on episode end, write a row
+       
             ep = info.get("episode")
             if ep:
                 ep_num = int(info.get("episode_number", self._ep_counter_per_env[i]))
@@ -113,14 +113,14 @@ class EpisodeMetricsLogger(BaseCallback):
                     "ep_return": float(ep.get("r", 0.0)),
                     "timestamp_ms": int(time.time() * 1000),
                 }
-                # include all known metric keys; default to 0.0 if never emitted this episode
+              
                 for k in self._seen_metric_keys:
                     row[k] = float(self._accum[i].get(k, 0.0))
                 self._accum[i].clear()
 
                 self._ensure_writer(row)
                 self._writer.writerow(row)
-                self._fh.flush()  # helps live graphing
+                self._fh.flush()
 
         return True
 

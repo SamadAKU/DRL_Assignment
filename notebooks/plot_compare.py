@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
+
 import argparse, os, glob
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Compare one metric across multiple personas.
-# Expects episodes.csv at logs/{app}/{persona}/episodes.csv unless --episodes_glob is provided.
+
 
 def main():
     ap = argparse.ArgumentParser()

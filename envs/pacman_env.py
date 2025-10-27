@@ -123,6 +123,7 @@ class AleScoreTracker(gym.Wrapper):
             m["episode_ale_score"] = self._ale_score
         return obs, reward, terminated, truncated, info
 
+
 def make_pacman_env(
     *, 
     for_watch: bool = False,
@@ -132,8 +133,7 @@ def make_pacman_env(
     eval_mode: bool = False,
     render_human: bool | None = None,
 ):
-    """
-    Unified Pacman env factory used by src.common.factory.make_env.
+    """Unified Pacman env factory used by src.common.factory.make_env.
     - `for_watch` toggles human rendering.
     - `reward_cfg_path` (yaml) is loaded and passed to PacmanRewardWrapper.
     - legacy args (`reward_cfg`, `render_human`) still work.
@@ -149,6 +149,13 @@ def make_pacman_env(
     if reward_cfg is None and reward_cfg_path and os.path.exists(reward_cfg_path):
         with open(reward_cfg_path, "r") as f:
             reward_cfg = yaml.safe_load(f)
+
+    # In watch mode, disable shaping unless caller explicitly provided nonzero weights
+    if for_watch:
+        # If reward_cfg is empty or None, force zeros to ensure pure base rewards
+        w = (reward_cfg or {}).get("weights", {})
+        if not any(abs(float(v)) > 0.0 for v in w.values()) if isinstance(w, dict) else True:
+            reward_cfg = {"weights": {"alive": 0.0, "pellet": 0.0, "death": 0.0, "truncation": 0.0, "explore": 0.0}}
 
     env = gym.make(
         "ALE/MsPacman-v5",

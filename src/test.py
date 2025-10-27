@@ -26,28 +26,28 @@ def _safe_render(env) -> None:
     """
     try:
         frame = env.render()
-        _ = frame  # ignore; user just wants to watch
+        _ = frame  
     except TypeError:
-        # Some legacy envs require a mode argument
+       
         try:
             frame = env.render(mode="human")
             _ = frame
         except Exception:
             pass
     except Exception:
-        # Don't let rendering kill watching
+     
         pass
 
 def watch(app: str, algo: str, model_path: str, episodes: int):
-    # Build the same env stack you use in training, but with for_watch=True (no reward shaping)
+    
     env = make_env(app, for_watch=True, reward_cfg_path=None)
 
-    # SB3 models can predict on a raw (non-Vec) env just fine
+    
     model = _load(algo, model_path)
 
     for ep in range(episodes):
         reset_out = env.reset()
-        # Gymnasium reset is (obs, info); tolerate legacy (obs) just in case
+       
         if isinstance(reset_out, tuple) and len(reset_out) == 2:
             obs, info = reset_out
         else:
@@ -58,14 +58,13 @@ def watch(app: str, algo: str, model_path: str, episodes: int):
         truncated = False
 
         while not (terminated or truncated):
-            # Model expects obs shaped like during training; wrappers in make_env handle this
             action, _ = model.predict(obs, deterministic=True)
             step_out = env.step(action)
-            # Gymnasium: (obs, reward, terminated, truncated, info)
+           
             if len(step_out) == 5:
                 obs, reward, terminated, truncated, info = step_out
             else:
-                # Legacy: (obs, reward, done, info) -> treat done as terminated
+                
                 obs, reward, done, info = step_out
                 terminated = bool(done)
                 truncated = False
